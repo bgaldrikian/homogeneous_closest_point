@@ -1,6 +1,6 @@
 # Homogeneous Closest Point Algorithm
 
-2018-08-08, B. Galdrikian
+2018-10-09, B. Galdrikian
 
 ## Introduction
 
@@ -158,5 +158,5 @@ below:
 
 ## Citations
 
-[1] "A Unified Closest Point and Linear Optimization Algorithm,"
+[1] "A Unified Convex Closest Point and Linear Optimization Algorithm,"
 B. Galdrikian.  (To be published.)

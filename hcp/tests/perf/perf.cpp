@@ -58,7 +58,7 @@ using namespace std;
 #include "src/specialized/sets/hcpd_shape_pair.h"
 
 
-ArrayWithString(uint, autoD, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100);
+ArrayWithString(uint, autoD, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 60, 70, 100);
 
 ArrayWithString(uint, autoN, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000);
 
@@ -91,15 +91,43 @@ private:
 template<typename F>
 struct Stats
 {
-	Stats() : mean(0), std_dev(0), median(0), mad(0) {}
+	Stats() : mean(0), median(0), rms_mean(0), mad_mean(0), rms_median(0), mad_median(0) {}
 
 	F	mean;
-	F	std_dev;
 	F	median;
-	F	mad;
+	F	rms_mean;
+	F	mad_mean;
+	F	rms_median;
+	F	mad_median;
 };
 
 typedef Stats<float>	StatsF;
+
+
+struct StatsOutput
+{
+	enum Stat
+	{
+		kNone,
+		kMean,
+		kMedian,
+
+		kStatCount
+	};
+
+	enum Dev
+	{
+		kRMS,
+		kMAD,
+
+		kDevCount
+	};
+
+	StatsOutput() : stat(kNone) {}
+
+	Stat	stat;
+	Dev		dev;
+};
 
 
 template<typename F>
@@ -111,20 +139,34 @@ calculate_stats(const vector<F>& values)
 	if (values.size())
 	{
 		// Calculate mean and std_dev
-		vector<F> v = values;
-		const F mean = accumulate(v.begin(), v.end(), (F)0) / v.size();
+		const F mean = accumulate(values.begin(), values.end(), (F)0) / values.size();
 		stats.mean = mean;
-		transform(v.begin(), v.end(), v.begin(), [mean](F x) { return x - mean; });
-		stats.std_dev = sqrt(inner_product(v.begin(), v.end(), v.begin(), (F)0) / max(v.size() - 1, (size_t)1));
 
-		// Calculate median and median absolute deviation
-		v = values;
-		sort(v.begin(), v.end());
-		const F median = (v[(v.size() - 1) / 2] + v[v.size() / 2]) / 2;
+		// Calculate median
+		vector<F> s = values;
+		sort(s.begin(), s.end());
+		const F median = (s[(s.size() - 1) / 2] + s[s.size() / 2]) / 2;
 		stats.median = median;
-		transform(v.begin(), v.end(), v.begin(), [median](F x) { return abs(x - median); });
+
+		// Calculate rms deviation from mean
+		vector<F> v = values;
+		transform(v.begin(), v.end(), v.begin(), [mean](F x) { return x - mean; });
+		stats.rms_mean = sqrt(inner_product(v.begin(), v.end(), v.begin(), (F)0) / max(v.size() - 1, (size_t)1));	// With Bessel's correction
+
+		// Calculate rms deviation from median
+		v = values;
+		transform(v.begin(), v.end(), v.begin(), [median](F x) { return x - median; });
+		stats.rms_median = sqrt(inner_product(v.begin(), v.end(), v.begin(), (F)0) / max(v.size() - 1, (size_t)1));	// With Bessel's correction
+
+		// Calculate median absolute deviation from mean
+		transform(s.begin(), s.end(), v.begin(), [mean](F x) { return abs(x - mean); });
 		sort(v.begin(), v.end());
-		stats.mad = (v[(v.size() - 1) / 2] + v[v.size() / 2]) / 2;
+		stats.mad_mean = (v[(v.size() - 1) / 2] + v[v.size() / 2]) / 2;
+
+		// Calculate median absolute deviation from median
+		transform(s.begin(), s.end(), v.begin(), [median](F x) { return abs(x - median); });
+		sort(v.begin(), v.end());
+		stats.mad_median = (v[(v.size() - 1) / 2] + v[v.size() / 2]) / 2;
 	}
 
 	return stats;
@@ -145,20 +187,19 @@ struct ObjectiveType
 
 const char* ObjectiveTypeNames[] =
 {
-	"LP",
+	"LO",
 	"CP"
 };
 
 
 typedef tuple<string, string, uint, uint>	SKey;
 
-struct Results
+struct TestSetup
 {
-	uint				D;
-	uint				N;
-	vector<uint>		hAxisVals;
-	vector<string>		seriesNames;
-	map<SKey,StatsF>	stats;
+	uint			D;
+	uint			N;
+	vector<uint>	hAxisVals;
+	vector<string>	seriesNames;
 };
 
 
@@ -181,8 +222,8 @@ public:
 	TestGroup(const MessageFilter* msg = nullptr) : m_D(0), m_N(0), m_M(0), m_msg(msg) {}
 	virtual ~TestGroup() {}
 
-	virtual const char*	name() = 0;
-	virtual const char*	arr_name() = 0;
+	virtual const char*	name() const = 0;
+	virtual const char*	arr_name() const = 0;
 
 	/**
 		The maximum number of spatial dimensions this test should run.  Default is numeric_limits<uint>().max().
@@ -243,7 +284,7 @@ public:
 
 	const int*			retvals() const { return m_retvals.data(); }
 
-	string				pack_test_id(const TestParams& params)
+	string				pack_test_id(const TestParams& params) const
 						{
 							return
 								string("t") + name() + ";" +
@@ -255,7 +296,7 @@ public:
 								string("m") + to_string(params.m);
 						}
 
-	bool				unpack_test_id(TestParams& params, const char* test_id)
+	bool				unpack_test_id(TestParams& params, const char* test_id) const
 						{
 							string testName;
 							string arrName;
@@ -299,7 +340,7 @@ class HCP_TestGroup : public TestGroup
 public:
 	HCP_TestGroup(const MessageFilter* msg = nullptr) : TestGroup(msg) {}
 
-	virtual const char*	arr_name() override { return AG().name(); }
+	virtual const char*	arr_name() const override { return AG().name(); }
 
 	virtual uint
 	default_M(uint D, uint /*N*/)
@@ -314,8 +355,7 @@ public:
 	{
 		if (D <= 10) return 10000;
 		if (D <= 30) return 1000;
-		if (D <= 70) return 100;
-		return 10;
+		return 100;
 	}
 
 	virtual void
@@ -349,7 +389,7 @@ class HCPGeneral_TestGroup : public HCP_TestGroup<AG>
 public:
 	HCPGeneral_TestGroup(const MessageFilter* msg = nullptr) : HCP_TestGroup<AG>(msg) {}
 
-	virtual const char*	name() override { return "HCP"; }
+	virtual const char*	name() const override { return "HCP"; }
 
 	virtual float
 	run() override
@@ -395,7 +435,7 @@ class HCPD_TestGroup : public HCP_TestGroup<AG>
 public:
 	HCPD_TestGroup(const MessageFilter* msg = nullptr) : HCP_TestGroup<AG>(msg) {}
 
-	virtual const char*	name() override { return s_name.c_str(); }
+	virtual const char*	name() const override { return s_name.c_str(); }
 
 	virtual float
 	run() override
@@ -440,8 +480,8 @@ class Seidel_TestGroup : public TestGroup
 public:
 	Seidel_TestGroup(const MessageFilter* msg = nullptr) : TestGroup(msg) {}
 
-	virtual const char*	name() override { return "Seid"; }
-	virtual const char*	arr_name() override { return AG().name(); }
+	virtual const char*	name() const override { return "Seid"; }
+	virtual const char*	arr_name() const override { return AG().name(); }
 
 	virtual uint		max_D() { return 30; }
 
@@ -597,14 +637,122 @@ struct Poly_AG
 };
 
 
+static string create_data_filename(const string& file_prefix, const TestGroup& test, size_t objN, uint N, uint D)
+{
+	return file_prefix + test.arr_name() + "_" + test.name() + "_" + ObjectiveTypeNames[objN] + "_N" + to_string(N) + "_D" + to_string(D);
+}
+
+
+static FILE* open_data_file_w(const string& data_dir, const string& filename, const MessageFilter& msg)
+{
+	const string& path = data_dir + "/" + filename;
+	FILE* f = fopen(path.c_str(), "a");
+	if (f == nullptr) f = fopen(path.c_str(), "w");	// Try "w" mode if "a" does not work
+	if (f == nullptr) msg.print(0, "\nCould not open data file for write.  Be sure directory %s exists.\n", data_dir);
+	return f;
+}
+
+
+static FILE* open_data_file_r(const string& data_dir, const string& filename, const MessageFilter& msg)
+{
+	const string& path = data_dir + "/" + filename;
+	FILE* f = fopen(path.c_str(), "r");
+	if (f == nullptr) msg.print(1, "\nCould not open data file %s for read.\n", path.c_str());
+	return f;
+}
+
+
+static void
+dual_printf(FILE* fp, const char* format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	vprintf(format, args);
+	fflush(stdout);
+	if (fp) vfprintf(fp, format, args);
+	va_end(args);
+}
+
+
+static void
+output_results(const TestSetup& setup, const map<SKey,StatsF>& stats, const StatsOutput& stats_out, const string& data_dir, const MessageFilter& msg)
+{
+	for (uint arrN = 0; arrN < PolyArrangementType::kPolyArrangementCount; ++arrN)
+	{
+		FILE* f = nullptr;
+		const string filename = data_dir + "/" + (setup.D ? "N" : "D") + "_" + ArrangementTypeName(arrN);
+		if ((f = fopen(filename.c_str(), "w")) == nullptr)
+		{
+			msg.print(0, "Could not create stats file %s.\n", filename);
+			f = nullptr;
+		}
+		dual_printf(f, "# ");
+		if (setup.D) dual_printf(f, "D = %d, N", setup.D);
+		else dual_printf(f, "N = %d, D", setup.N);
+		dual_printf(f, " sweep, arrangement type = %s.  Times in microseconds.\n", ArrangementTypeName(arrN));
+		dual_printf(f, "%-8s", setup.D ? "N" : "D");
+		for (const string& series_name : setup.seriesNames) dual_printf(f, "%-11s%-11s", series_name.c_str(), (string("d(") + series_name + ")").c_str());
+		dual_printf(f, "\n");
+		for (uint val : setup.hAxisVals)
+		{
+			uint D, N;
+			if (setup.D)
+			{
+				D = setup.D;
+				N = val;
+			}
+			else
+			{
+				N = setup.N;
+				D = val;
+			}
+			dual_printf(f, "%-8d", val);
+			for (const string& series_name : setup.seriesNames)
+			{
+				map<SKey, StatsF>::const_iterator it = stats.find(SKey(string(ArrangementTypeName(arrN)), series_name, N, D));
+				if (it != stats.end())
+				{
+					float stat = 0;
+					float dev = 0;
+					switch (stats_out.stat)
+					{
+					case StatsOutput::kMean:
+						stat = it->second.mean;
+						switch (stats_out.dev)
+						{
+						case StatsOutput::kRMS: dev = it->second.rms_mean;	break;
+						case StatsOutput::kMAD: dev = it->second.mad_mean;	break;
+						}
+						break;
+					case StatsOutput::kMedian:
+						stat = it->second.median;
+						switch (stats_out.dev)
+						{
+						case StatsOutput::kRMS: dev = it->second.rms_median;	break;
+						case StatsOutput::kMAD: dev = it->second.mad_median;	break;
+						}
+						break;
+					}
+					if (stat > 0) dual_printf(f, "%-11.5g%-11.5g", stat, dev);
+					else dual_printf(f, "                      ");
+				}
+			}
+			dual_printf(f, "\n");
+		}
+		if (f != nullptr) fclose(f);
+		printf("\n");
+	}
+}
+
+
 /**
 	D = # of spatial dimensions
 	N = # (total) of half-spaces per arrangement
 	M = # of arrangements per measurement group
 	G = # of measurement groups
 */
-static void
-run(Results& results, const vector<TestGroup*>& tests, uint D, uint N, uint M_in, uint G_in, TestParams* params, const string& all_data_dir, const string& file_prefix, const MessageFilter& msg)
+static bool
+run(map<SKey,StatsF>& stats, const TestSetup& setup, const string& data_dir, bool compile, const vector<TestGroup*>& tests, uint D, uint N, uint M_in, uint G_in, uint start_group, TestParams* params, bool flush_data, const string& file_prefix, const MessageFilter& msg)
 {
 	for (TestGroup* test : tests)
 	{
@@ -638,109 +786,128 @@ run(Results& results, const vector<TestGroup*>& tests, uint D, uint N, uint M_in
 		G_max = max(G_max, G[testN]);
 	}
 
-	vector<uint> objTypes;
-	if (!params)
+	if (!compile)
 	{
-		objTypes.resize(ObjectiveType::kCount);
-		iota(objTypes.begin(), objTypes.end(), 0);
-	}
-	else objTypes = { params->objType };
-
-	Random<real> rnd;
-
-	/*
-		log_2(D) : 4 bits (D <= 65535)
-		log_2(N) : 5 bits
-		g		 : 14 bits (G <= 16384)
-		m		 : 7 bits (M <= 128)
-	*/
-	const uint32_t seedDN = ilogb(D) << 26 | ilogb(N) << 21;
-
-	msg.print(2, "groups (%%):");
-	int last_print = -1;
-	for (uint g = 0; g < G_max; ++g)
-	{
-		const int print_n = (10 * g) / G_max;
-		if (print_n != last_print)
+		vector<uint> objTypes;
+		if (!params)
 		{
-			msg.print(2, " %d", print_n * 10);
-			last_print = print_n;
+			objTypes.resize(ObjectiveType::kCount);
+			iota(objTypes.begin(), objTypes.end(), 0);
 		}
-		real* poly_plane = poly_planes;
-		real* point = point_objectives;
-		real* direction = direction_objectives;
-		for (uint m = 0; m < M_max; ++m, point += D + 1, direction += D + 1)
-		{
-			const uint32_t seed = seedDN | (!params ? (g << 7 | m) : (params->g << 7 | params->m));
-			rnd.seed(seed);
-			rnd.sphere(point, D, rnd.uniform(point_Ri, point_Ro)); point[D] = 1;
-			rnd.sphere(direction, D); direction[D] = 0;
-			for (uint n = 0; n < N; ++n, poly_plane += D + 1) { rnd.sphere(poly_plane, D); poly_plane[D] = -1; }
-		}
+		else objTypes = { params->objType };
 
-		for (uint testN = 0; testN < tests.size(); ++testN)
+		Random<real> rnd;
+
+		/*
+			log_2(D) : 4 bits (D <= 65535)
+			log_2(N) : 5 bits
+			g		 : 14 bits (G <= 16384)
+			m		 : 7 bits (M <= 128)
+		*/
+		const uint32_t seedDN = ilogb(D) << 26 | ilogb(N) << 21;
+
+		msg.print(2, "groups (%%):");
+		int last_print = -1;
+		for (uint g = start_group; g < G_max; ++g)
 		{
-			TestGroup& test = *tests[testN];
-			if (!test.valid()) continue;
-			if (g >= G[testN]) break;
-			test.set_planes(poly_planes);
-			for (uint objType : objTypes)
+			const int print_n = (100 * g) / G_max;
+			if (print_n != last_print)
 			{
-				if (!test.objective_type_supported(objType)) continue;
-				test.set_objectives(objective_lists[objType]);
-				t_meas[testN][objType][g] = test.run();
-				if (!params)
+				msg.print(2, " %d", print_n);
+				last_print = print_n;
+			}
+			real* poly_plane = poly_planes;
+			real* point = point_objectives;
+			real* direction = direction_objectives;
+			for (uint m = 0; m < M_max; ++m, point += D + 1, direction += D + 1)
+			{
+				const uint32_t seed = seedDN | (!params ? (g << 7 | m) : (params->g << 7 | params->m));
+				rnd.seed(seed);
+				rnd.sphere(point, D, rnd.uniform(point_Ri, point_Ro)); point[D] = 1;
+				rnd.sphere(direction, D); direction[D] = 0;
+				for (uint n = 0; n < N; ++n, poly_plane += D + 1) { rnd.sphere(poly_plane, D); poly_plane[D] = -1; }
+			}
+
+			for (uint testN = 0; testN < tests.size(); ++testN)
+			{
+				TestGroup& test = *tests[testN];
+				if (!test.valid()) continue;
+				if (g >= G[testN]) break;
+				test.set_planes(poly_planes);
+				for (uint objType : objTypes)
 				{
-					for (uint m = 0; m < test.M(); ++m)
+					if (!test.objective_type_supported(objType)) continue;
+					test.set_objectives(objective_lists[objType]);
+					const float t = test.run();
+					t_meas[testN][objType][g] = t;
+					if (!params)
 					{
-						if (test.retvals()[m] < 0)
+						for (uint m = 0; m < test.M(); ++m)
 						{
-							const string id = test.pack_test_id(TestParams(objType, D, N, g, m));
-							msg.print(0, "\n[%s_%s] obj = %s, D = %d, N = %d, group = %d, arr = %d: error.  Test ID: %s\n", test.name(), test.arr_name(), ObjectiveTypeNames[objType], D, N, g, m, id.c_str());
+							if (test.retvals()[m] < 0)
+							{
+								const string id = test.pack_test_id(TestParams(objType, D, N, g, m));
+								msg.print(0, "\n[%s_%s] obj = %s, D = %d, N = %d, group = %d, arr = %d: error.  Test ID: %s\n", test.name(), test.arr_name(), ObjectiveTypeNames[objType], D, N, g, m, id.c_str());
+							}
 						}
+					}
+					if (flush_data)
+					{
+						const string filename = create_data_filename(file_prefix, test, objType, N, D);
+						FILE* f = open_data_file_w(data_dir, filename, msg);
+						if (f == nullptr) return false;
+						fprintf(f, "%.9g\n", t);
+						fclose(f);
 					}
 				}
 			}
 		}
+		msg.print(2, " %d", 100);
 	}
-	msg.print(2, " %d", 100);
 
-	for (size_t testN = 0; testN < tests.size(); ++testN)
+	if (compile || !flush_data)	// Only write to data file here if we weren't doing it after each measurement, or use the same loops to read data.
 	{
-		TestGroup* test = tests[testN];
-		for (size_t objN = 0; objN < ObjectiveType::kCount; ++objN)
+		for (size_t testN = 0; testN < tests.size(); ++testN)
 		{
-			const string series_name = string(test->name()) + "/" + ObjectiveTypeNames[objN];
-			if (find(results.seriesNames.begin(), results.seriesNames.end(), series_name) != results.seriesNames.end())
+			TestGroup* test = tests[testN];
+			for (size_t objN = 0; objN < ObjectiveType::kCount; ++objN)
 			{
-				results.stats[SKey(string(test->arr_name()), series_name, N, D)] = calculate_stats(t_meas[testN][objN]);
-				if (all_data_dir != "")
+				const string series_name = string(test->name()) + "/" + ObjectiveTypeNames[objN];
+				if (find(setup.seriesNames.begin(), setup.seriesNames.end(), series_name) != setup.seriesNames.end())
 				{
-					const string filename = all_data_dir + "/" + file_prefix + test->arr_name() + "_" + test->name() + "_" + ObjectiveTypeNames[objN] + "_N" + to_string(N) + "_D" + to_string(D);
-					FILE* f;
-					if ((f = fopen(filename.c_str(), "w")) != nullptr)
+					const string filename = create_data_filename(file_prefix, *test, objN, N, D);
+					if (!compile)
 					{
+						FILE* f = open_data_file_w(data_dir, filename, msg);
+						if (f == nullptr) return false;
 						for (float t : t_meas[testN][objN]) fprintf(f, "%.9g\n", t);
 						fclose(f);
 					}
 					else
 					{
-						static bool warning_given = false;
-						if (!warning_given)
+						vector<float>& t = t_meas[testN][objN];
+						fill(t.begin(), t.end(), 0.0f);
+						FILE* f = open_data_file_r(data_dir, filename, msg);
+						if (f != nullptr)
 						{
-							msg.print(0, "Could not create data file.  Be sure directory %s exists.  Further warnings supressed.\n", all_data_dir);
-							warning_given = true;
+							t.clear();	// Get actual size from file
+							float read_val;
+							while (1 == fscanf(f, "%f", &read_val)) t.push_back(read_val);
+							fclose(f);
 						}
+						stats[SKey(string(test->arr_name()), series_name, N, D)] = calculate_stats(t);
 					}
 				}
 			}
 		}
 	}
+
+	return true;
 }
 
 
-static void
-setup_and_run(Results& results, const string& run_type, uint M_in, uint G_in, bool exclusivelyHCP, const string& all_data_dir, const MessageFilter& msg)
+static bool
+setup_and_run(const string& run_type, const string& data_dir, const StatsOutput& stats_out, uint M_in, uint G_in, uint start_group, bool exclusivelyHCP, bool flush_data, const MessageFilter& msg)
 {
 	char sweep_type = '\0';
 	if (run_type == "N") sweep_type = 'N';
@@ -768,46 +935,52 @@ setup_and_run(Results& results, const string& run_type, uint M_in, uint G_in, bo
 		tests.push_back(new Seidel_TestGroup< Poly_AG<PolyArrangementType::kUnbounded> >(&msg));
 	}
 
+	TestSetup setup;
+
 	for (TestGroup* test : tests)
 		for (uint objType = 0; objType < ObjectiveType::kCount; ++objType)
 			if (test->objective_type_supported(objType))
 			{
 				const string series_name = string(test->name()) + "/" + ObjectiveTypeNames[objType];
-				if (find(results.seriesNames.begin(), results.seriesNames.end(), series_name) == results.seriesNames.end()) results.seriesNames.push_back(series_name);
+				if (find(setup.seriesNames.begin(), setup.seriesNames.end(), series_name) == setup.seriesNames.end()) setup.seriesNames.push_back(series_name);
 			}
 
-	results.D = results.N = 0;
+	setup.D = setup.N = 0;
+
+	map<SKey, StatsF> stats;
+
+	const bool compile = stats_out.stat != StatsOutput::kNone;
 
 	switch (sweep_type)
 	{
 	case 'N':
 		{
-		results.D = 3;
-		results.hAxisVals.assign(autoN, autoN + sizeof(autoN) / sizeof(autoN[0]));
-		msg.print(1, "D = %d, sweep ", results.D);
+		setup.D = 3;
+		setup.hAxisVals.assign(autoN, autoN + sizeof(autoN) / sizeof(autoN[0]));
+		msg.print(1, "D = %d, sweep ", setup.D);
 		msg.print(2, "\n");
 		msg.print(1, "N = ");
-		for (uint N : results.hAxisVals)
+		for (uint N : setup.hAxisVals)
 		{
 			msg.print(1, "%d ", N);
-			run(results, tests, results.D, N, M_in, G_in, nullptr, all_data_dir, "t_NSWEEP_", msg);
-			if (N != results.hAxisVals.back()) msg.print(2, "\nN = ");
+			if (!run(stats, setup, data_dir, compile, tests, setup.D, N, M_in, G_in, start_group, nullptr, flush_data, "t_NSWEEP_", msg)) return false;
+			if (N != setup.hAxisVals.back()) msg.print(2, "\nN = ");
 		}
 		msg.print(1, "\n");
 		}
 		break;
 	case 'D':
 		{
-		results.N = 1000;
-		results.hAxisVals.assign(autoD, autoD + sizeof(autoD) / sizeof(autoD[0]));
-		msg.print(1, "N = %d, sweep ", results.N);
+		setup.N = 1000;
+		setup.hAxisVals.assign(autoD, autoD + sizeof(autoD) / sizeof(autoD[0]));
+		msg.print(1, "N = %d, sweep ", setup.N);
 		msg.print(2, "\n");
 		msg.print(1, "D = ");
-		for (uint D : results.hAxisVals)
+		for (uint D : setup.hAxisVals)
 		{
 			msg.print(1, "%d ", D);
-			run(results, tests, D, results.N, M_in, G_in, nullptr, all_data_dir, "t_DSWEEP_", msg);
-			if (D != results.hAxisVals.back()) msg.print(2, "\nD = ");
+			if (!run(stats, setup, data_dir, compile, tests, D, setup.N, M_in, G_in, start_group, nullptr, flush_data, "t_DSWEEP_", msg)) return false;
+			if (D != setup.hAxisVals.back()) msg.print(2, "\nD = ");
 		}
 		msg.print(1, "\n");
 		}
@@ -821,9 +994,9 @@ setup_and_run(Results& results, const string& run_type, uint M_in, uint G_in, bo
 			if (test->unpack_test_id(params, run_type.c_str()))
 			{
 				vector<TestGroup*> single_test = { test };
-				results.N = params.N;
-				results.D = params.D;
-				run(results, single_test, params.D, params.N, 1, 1, &params, all_data_dir, "t_", msg);
+				setup.N = params.N;
+				setup.D = params.D;
+				if (!run(stats, setup, data_dir, false, single_test, params.D, params.N, 1, 1, 0, &params, flush_data, "t_", msg)) return false;
 				break;
 			}
 		}
@@ -831,80 +1004,50 @@ setup_and_run(Results& results, const string& run_type, uint M_in, uint G_in, bo
 		break;
 	}
 
+	if (stats_out.stat != StatsOutput::kNone)
+		output_results(setup, stats, stats_out, data_dir, msg);
+
 	// Clean up
 	for (TestGroup* test : tests) delete test;
+
+	return true;
 }
 
 
-static void
-dual_printf(FILE* fp, const char* format, ...)
+bool
+parse_stats_cmd(StatsOutput& stats_out, const char* cmd)
 {
-	va_list args;
-	va_start(args, format);
-	vprintf(format, args);
-	if (fp) vfprintf(fp, format, args);
-	va_end(args);
-	fflush(stdout);
-}
+	StatsOutput ret;
 
+	if (cmd == nullptr) return false;
 
-static void
-output_results(const Results& results, const string& stats_dir, const MessageFilter& msg)
-{
-	if (results.D == 0 && results.N == 0) return;
-
-	for (uint arrN = 0; arrN < PolyArrangementType::kPolyArrangementCount; ++arrN)
+	const char* comma = strchr(cmd, ',');
+	if (comma == nullptr)
 	{
-		FILE* f = nullptr;
-		if (stats_dir != "")
-		{
-			const string filename = stats_dir + "/" + (results.D ? "N" : "D") + "_" + ArrangementTypeName(arrN);
-			if ((f = fopen(filename.c_str(), "w")) != nullptr)
-			{
-				static bool warning_given = false;
-				if (!warning_given)
-				{
-					msg.print(0, "Could not create stats file.  Be sure directory %s exists.  Further warnings supressed.\n", stats_dir);
-					warning_given = true;
-				}
-				f = nullptr;
-			}
-		}
-		dual_printf(f, "# ");
-		if (results.D) dual_printf(f, "D = %d, N", results.D);
-		else dual_printf(f, "N = %d, D", results.N);
-		dual_printf(f, " sweep, arrangement type = %s.  Times in microseconds.\n", ArrangementTypeName(arrN));
-		dual_printf(f, "%-8s", results.D ? "N" : "D");
-		for (const string& series_name : results.seriesNames) dual_printf(f, "%-11s%-11s", series_name.c_str(), (string("d(") + series_name + ")").c_str());
-		dual_printf(f, "\n");
-		for (uint val : results.hAxisVals)
-		{
-			uint D, N;
-			if (results.D)
-			{
-				D = results.D;
-				N = val;
-			}
-			else
-			{
-				N = results.N;
-				D = val;
-			}
-			dual_printf(f, "%-8d", val);
-			for (const string& series_name : results.seriesNames)
-			{
-				map<SKey,StatsF>::const_iterator it = results.stats.find(SKey(string(ArrangementTypeName(arrN)), series_name, N, D));
-				if (it != results.stats.end())
-				{
-					if (it->second.median > 0) dual_printf(f, "%-11.5g%-11.5g", it->second.median, it->second.mad);
-					else dual_printf(f, "                      ");
-				}
-			}
-			dual_printf(f, "\n");
-		}
-		dual_printf(f, "\n");
-		if (f != nullptr) fclose(f);
+		cout << "Stat and deviation type must be comma-separated.\n";
+		return false;
 	}
+
+	if (!strncmp(cmd, "mean", comma - cmd)) ret.stat = StatsOutput::kMean;
+	else
+	if (!strncmp(cmd, "median", comma - cmd)) ret.stat = StatsOutput::kMedian;
+	else
+	{
+		cout << "Unknown stat: " << string(cmd).substr(0, comma - cmd) << "\n";
+		return false;
+	}
+
+	if (!strcmp(comma + 1, "rms")) ret.dev = StatsOutput::kRMS;
+	else
+	if (!strcmp(comma + 1, "mad")) ret.dev = StatsOutput::kMAD;
+	else
+	{
+		cout << "Unknown deviation: " << string(comma + 1) << "\n";
+		return false;
+	}
+
+	stats_out = ret;
+	return true;
 }
 
 
@@ -912,17 +1055,19 @@ int
 main(int argc, char** argv)
 {
 	string run_type = "";
+	string data_dir = "";
+	StatsOutput stats_out;
+	bool flush_data = false;
+	bool exclusivelyHCP = false;
 	uint M = 0;
 	uint G = 0;
-	bool exclusivelyHCP = false;
-	string all_data_dir = "";
-	string stats_dir = "";
+	uint start_group = 0;
 	int verbosity = 1;
 
-	if (argc <= 1 || argv[1][0] == '?')
+	if (argc <= 2)
 	{
 		cout << "\nUsage:\n\n";
-		cout << "perf type [m M] [g G] [x X] [o o_dir] [a a_dir] [v verbosity]\n\n";
+		cout << "perf type dir [c stat,dev] [f] [x] [m M] [g G] [s S] [v verbosity]\n\n";
 		cout << "type = 'N', 'D', or a test ID.  If 'N', the total number of half-spaces is\n";
 		cout << "    swept through {" << autoN_str << "} while\n";
 		cout << "    the number of spatial dimensions is fixed at D = 3.  If 'D', the number of\n";
@@ -930,15 +1075,21 @@ main(int argc, char** argv)
 		cout << "    number of half-spaces is fixed at N = 1000.  Otherwise, this argument needs\n";
 		cout << "    to be a test ID.  A test ID is output when an error occurs during a run. It\n";
 		cout << "    will specify a test, objective, D, N, and arrangement to run.\n";
+		cout << "dir = directory to write files containing all measurments.\n";
+		cout << "stat,dev: compile statistics from data files.  The stat field must be 'mean' or\n";
+		cout << "    'median'.  The 'dev' field must be 'rms' or 'mad' (for standard deviation or\n";
+		cout << "    median absolute deviation'.  For example, 'c median,mad'.  If this command\n";
+		cout << "    is given then all commands listed below are ignored.\n";
+		cout << "f: causes data files to be written to after each measurement.  May impact\n";
+		cout << "    performance, but does not affect measurements.\n";
+		cout << "x: causes only HCP tests to be performed.\n";
 		cout << "M = number of arrangments per test group.  If 0, M is set to (D,N)-dependent\n";
-		cout << "    default values.\n";
+		cout << "    default values.  Default = 0.\n";
 		cout << "G = number of test groups for calculating statistics.  If 0, G is set to\n";
-		cout << "    (D,N)-dependent default values.\n";
-		cout << "X = 0 or 1.  If 1, only HCP tests are performed.  Default = 0.\n";
-		cout << "o_dir = directory to write statistics files.  If not given, no files will be.\n";
+		cout << "    (D,N)-dependent default values.  Default = 0.\n";
+		cout << "S = starting group #.  Used for test restarts.  Default = 0.\n";
+		cout << "o_dir = directory to write statistics files.  If none given, no files will be.\n";
 		cout << "    written (stats are written to std out in any case).\n";
-		cout << "a_dir = directory to write files containing all measurments.  If not given, no\n";
-		cout << "    such files will be written.\n";
 		cout << "verbosity = 0, 1, or 2. How much progress text is output.  Default = 1.\n";
 		cout << "\n";
 		return -1;
@@ -947,26 +1098,28 @@ main(int argc, char** argv)
 	char* const * stop = argv + argc;
 	run_type = *++argv;
 
+	data_dir = *++argv;
+
 	while (++argv < stop)
 	{
 		switch (**argv)
 		{
-		case 'm': if (++argv < stop) M = (uint)(max(0, atoi(*argv)));	break;
-		case 'g': if (++argv < stop) G = (uint)(max(0, atoi(*argv)));	break;
-		case 'x': if (++argv < stop) exclusivelyHCP = !!atoi(*argv);	break;
-		case 'o': if (++argv < stop) stats_dir = *argv;					break;
-		case 'a': if (++argv < stop) all_data_dir = *argv;				break;
-		case 'v': if (++argv < stop) verbosity = atoi(*argv);			break;
+		case 'c': if (++argv < stop && !parse_stats_cmd(stats_out, *argv)) return -1;	break;
+		case 'f': flush_data = true;													break;
+		case 'x': exclusivelyHCP = true;												break;
+		case 'm': if (++argv < stop) M = (uint)(max(0, atoi(*argv)));					break;
+		case 'g': if (++argv < stop) G = (uint)(max(0, atoi(*argv)));					break;
+		case 's': if (++argv < stop) start_group = (uint)(max(0, atoi(*argv)));			break;
+		case 'v': if (++argv < stop) verbosity = atoi(*argv);							break;
 		default: cout << "Unknown commandline switch \"" << *argv << "\" ignored.\n";
 		}
 	}
 
 	MessageFilter msg(verbosity);
-	Results results;
 	ThreadPriority().set(Priority::Very_High);
-	setup_and_run(results, run_type, M, G, exclusivelyHCP, all_data_dir, msg);
+	if (!setup_and_run(run_type, data_dir, stats_out, M, G, start_group, exclusivelyHCP, flush_data, msg))
+		msg.print(0, "Stopping due to error.\n");
 	ThreadPriority().set(Priority::Normal);
-	output_results(results, stats_dir, msg);
 
 	return 0;
 }

@@ -1,6 +1,6 @@
 # Homogeneous Closest Point Algorithm Reference Implementation
 
-2018-08-08, B. Galdrikian
+2018-10-09, B. Galdrikian
 
 ## Layout
 
@@ -69,8 +69,3 @@ The software in ./hcp/ is open-source, licensed under the MIT license below:
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 ```
-
-## Citations
-
-[1] "A Unified Closest Point and Linear Optimization Algorithm,"
-B. Galdrikian.  (To be published.)
