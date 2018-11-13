@@ -10,6 +10,20 @@
 
 int main()
 {
+	printf("Intersection example.  The closest point to the origin in the intersection\n");
+	printf("of a tetrhedron and a cube is found.\n");
+	printf("\n");
+	printf("The tetrahedron has sides bounded by the planes :\n");
+	printf("  yz plane\n");
+	printf("  zx plane\n");
+	printf("  xy plane\n");
+	printf("  the plane with normal and point (1 / sqrt(3), 1 / sqrt(3), 1 / sqrt(3))\n");
+	printf("\n");
+	printf("The cube is axis-aligned with unit width, and centered at (3/4, 3/4, 0).\n");
+	printf("\n");
+	printf("The correct query return value is 1, signifying a feasible set.  The exact\n");
+	printf("closest point to the origin in the intersection is (1/4, 1/4, 0).\n");
+
 	const real tetrahedron_planes[4][4] = { {-1, 0, 0, 0 }, { 0,-1, 0, 0 }, { 0, 0,-1, 0 }, { SQRT1_3, SQRT1_3, SQRT1_3,-1 } };
 	HCP_Static_Polytope tetrahedron(3, 4, tetrahedron_planes[0]);	// Form a HCP_Halfspace_Set from bounding planes
 
@@ -19,7 +33,7 @@ int main()
 	real p[4] = { 0, 0, 0, 1 };	// Query point (0, 0, 0)
 	const int result = HCPA(3).solve(HCP_Shape_Pair(3, &tetrahedron, &cube), p);
 
-	printf("result = %d, closest point = (%g %g %g %g)\n", result, p[0], p[1], p[2], p[3]);
+	printf("\nresult = %d, closest point = (%g %g %g %g)\n\n", result, p[0], p[1], p[2], p[3]);
 
 	return 0;
 }

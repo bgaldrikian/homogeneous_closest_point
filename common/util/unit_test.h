@@ -62,7 +62,7 @@ struct UnitTest
 	virtual	const char*	name() const = 0;
 	virtual void		exec(uint32_t&) = 0;
 
-	static void run_all(std::vector<const char*> matches = std::vector<const char*>(1, ""))
+	static int run_all(std::vector<const char*> matches = std::vector<const char*>(1, ""))
 	{
 		uint32_t test_count = 0;
 		uint32_t disabled_count = 0;
@@ -78,6 +78,7 @@ struct UnitTest
 		if (!fail_count) std::cout << "All tests PASSED.\n"; else std::cout << fail_count << " test" << pl_s(fail_count) << " FAILED.\n";
 		SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED);
 		std::cout << "\n";
+		return (int)fail_count;
 	}
 
 	static const char* pl_s(uint32_t n) { return n == 1 ? "" : "s"; }
@@ -121,16 +122,14 @@ if (std::abs((_expected) - (_x) > (_tol))) \
 #define IMPLIES	== false ||
 
 
-#define UNIT_TEST_PROGRAM()														\
-int																				\
-main(int argc, char** argv)														\
-{																				\
-	if (argc <= 1) UnitTest::run_all();											\
-	else UnitTest::run_all(std::vector<const char*>(argv + 1, argv + argc));	\
-	return 0;																	\
-}																				\
-																				\
-UnitTest*	UnitTest::s_test_list = nullptr;									\
+#define UNIT_TEST_PROGRAM()																							\
+int																													\
+main(int argc, char** argv)																							\
+{																													\
+	return argc <= 1 ? UnitTest::run_all() : UnitTest::run_all(std::vector<const char*>(argv + 1, argv + argc));	\
+}																													\
+																													\
+UnitTest*	UnitTest::s_test_list = nullptr;																		\
 UnitTest*	UnitTest::s_test_list_end = nullptr
 
 

@@ -44,7 +44,7 @@ UNIT_TEST(HCP_QRP_Determinant)
 
 	for (uint D = 1; D <= D_max; ++D)
 	{
-		const real eps = (real)0.00002;
+		const real eps = (real)0.00005;
 		for (uint N = 1; N < D; ++N)
 		{
 			for (uint T = 0; T < trial_count; ++T)
